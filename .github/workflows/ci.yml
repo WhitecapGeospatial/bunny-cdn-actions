@@ -20,6 +20,7 @@ jobs:
       - name: Run --self-check on every script
         run: |
           set -euo pipefail
+          node lib/extract-export.mjs --self-check
           node sync-geodata/copy.mjs --self-check
           node sync-geodata/verify.mjs --self-check
           node upload-storage/upload.mjs --self-check

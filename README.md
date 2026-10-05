@@ -11,9 +11,10 @@ bunny-cdn-actions/
   .github/workflows/
     ci.yml              # --self-check on every script (no live Nautilus/Bunny)
     sync-geodata.yml    # reusable workflow (workflow_call)
-  sync-geodata/         # composite: rclone install + copy/check + optional verify
+  lib/extract-export.mjs  # shared: esbuild an app's catalog module, dump one export
+  sync-geodata/         # composite: extract + rclone install + copy/check + optional verify
   upload-storage/       # composite: PUT build dir (hashed first)
-  purge-cdn/            # composite: purge stable shell paths
+  purge-cdn/            # composite: extract + purge stable shell paths
 ```
 
 Plain Node `.mjs` scripts. No `package.json`, no TypeScript in this repo.
@@ -44,7 +45,7 @@ Path: `src/cdnAssets.ts` — leaf module (do not import the rest of `constants.t
 - `CDN_ASSET_S3_OBJECTS`: `bucket/key` strings only, never `https://` URLs
 - Trailing slash = prefix copy (e.g. sedero COG folder)
 - `.m3u8` entries copy the parent prefix (HLS segments)
-- `cacheEntrypoints`: stable shell paths for production purge
+- `cacheEntrypoints`: stable shell paths for production purge — never under the hashed dir (`assets/*`, `*`), which would evict every bundle
 - Module must esbuild for Node: `--bundle --platform=node --format=esm --packages=external`
 
 ## Sync caller
@@ -64,8 +65,6 @@ on:
 jobs:
   sync:
     uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/sync-geodata.yml@v1
-    with:
-      cdn-host: ${{ vars.APP_URL }}
     secrets: inherit
 ```
 
@@ -76,7 +75,7 @@ Inputs (all optional except what you need):
 | `catalog-module` | `src/cdnAssets.ts` | Leaf module to esbuild |
 | `catalog-export` | `CDN_ASSET_S3_OBJECTS` | Named export |
 | `catalog-file` | _(empty)_ | Debug override — skips extract; not a migration path |
-| `cdn-host` | _(empty)_ | Smoke host for verify |
+| `cdn-host` | `vars.APP_URL` | Smoke host for verify; falls back to `APP_URL` as seen by the shared job, which has the `preview`/`production` environment (the caller's job doesn't) |
 | `verify` | `true` | Ignored on pull_request |
 | `dry-run` | `false` | rclone dry-run |
 
@@ -86,12 +85,15 @@ Behavior:
 - **push / workflow_dispatch:** copy, then verify when `verify: true`
 - Timeout 360 minutes
 
-### Catalog extract (lives in the reusable workflow)
+### Catalog extract (`lib/extract-export.mjs`)
 
-After checkout of the caller:
+Both `sync-geodata` and `purge-cdn` run it against the caller checkout:
 
-1. `npx esbuild ${{ inputs.catalog-module }}` → `$RUNNER_TEMP/cdnAssets.mjs`
-2. Print `CDN_ASSET_S3_OBJECTS` (one path per line) → catalog for `copy.mjs` / `verify.mjs`
+1. `npx esbuild@<pinned>` bundles `catalog-module` (secrets stripped from npx's env)
+2. Imports `catalog-export`, checks it is a non-empty array of non-empty, non-URL strings
+3. Writes one entry per line → catalog for `copy.mjs` / `verify.mjs`, or paths for `purge.mjs`
+
+The list stays app-owned; only the code that reads it lives here.
 
 ## Deploy / upload / purge caller
 
@@ -106,27 +108,27 @@ After checkout of the caller:
     BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
     BUNNY_STORAGE_HOST: ${{ vars.BUNNY_STORAGE_HOST }}
 
-- name: Write purge paths
-  if: env.DEPLOY_ENV == 'production'
-  run: |
-    npx --yes esbuild src/cdnAssets.ts \
-      --bundle --platform=node --format=esm --packages=external \
-      --outfile="$RUNNER_TEMP/cdnAssets.mjs"
-    node --input-type=module -e "
-      import { cacheEntrypoints } from 'file://$RUNNER_TEMP/cdnAssets.mjs'
-      for (const p of cacheEntrypoints) console.log(p)
-    " > "$RUNNER_TEMP/purge-paths.txt"
-
 - uses: WhitecapGeospatial/bunny-cdn-actions/purge-cdn@v1
   if: env.DEPLOY_ENV == 'production'
   with:
     app-url: ${{ vars.APP_URL }}
-    paths-file: ${{ runner.temp }}/purge-paths.txt
+    hashed-dir: assets       # CRA: static (default: assets)
   env:
     BUNNY_CDN_API_KEY: ${{ secrets.BUNNY_CDN_API_KEY }}
 ```
 
-Keep the esbuild dump of `cacheEntrypoints` in the caller (app-owned). Dual-write to Nautilus stays in the app deploy workflow.
+`purge-cdn` inputs:
+
+| Input | Default | Notes |
+|-------|---------|-------|
+| `app-url` | _(required)_ | Origin the paths are relative to |
+| `catalog-module` | `src/cdnAssets.ts` | Leaf module to esbuild |
+| `catalog-export` | `cacheEntrypoints` | Named export |
+| `paths-file` | _(empty)_ | Override for apps without such a module — skips extract |
+| `hashed-dir` | `assets` | Paths covering it (`assets/*`, `*`, `as*`) fail the step; match `upload-storage` |
+| `dry-run` | `false` | Log purge URLs only |
+
+The `cacheEntrypoints` list stays in the app; the action only reads it. Dual-write to Nautilus stays in the app deploy workflow.
 
 ## Verify rules
 
@@ -142,6 +144,7 @@ Trailing-slash catalog entries are skipped at verify (prefix copy only).
 ## Local self-check
 
 ```bash
+node lib/extract-export.mjs --self-check
 node sync-geodata/copy.mjs --self-check
 node sync-geodata/verify.mjs --self-check
 node upload-storage/upload.mjs --self-check
