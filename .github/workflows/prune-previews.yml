@@ -1,0 +1,53 @@
+name: Prune preview builds
+
+# Caller owns the schedule and secrets: inherit.
+# Runs in the `preview` environment, where the preview storage zone and APP_URL live.
+on:
+  workflow_call:
+    inputs:
+      prefix-pattern:
+        description: Top-level preview folder name with {n} for the PR number
+        type: string
+        required: false
+        default: pr-{n}
+      closed-days:
+        description: Days after the PR closes (merged or not) before its preview is deleted
+        type: number
+        required: false
+        default: 30
+      app-url:
+        description: Origin previews are served under; defaults to the preview environment's APP_URL
+        type: string
+        required: false
+        default: ''
+      dry-run:
+        description: List what would be pruned without purging or deleting
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  prune:
+    name: Prune preview builds
+    runs-on: ubuntu-latest
+    environment: preview
+    permissions:
+      pull-requests: read
+    concurrency:
+      group: prune-previews-${{ github.repository }}
+    steps:
+      # Relative ./prune-previews resolves in the *caller* checkout; pin the
+      # composite to the same major tag as this reusable workflow.
+      - name: Prune preview builds
+        uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/prune-previews@v1
+        with:
+          prefix-pattern: ${{ inputs.prefix-pattern }}
+          closed-days: ${{ inputs.closed-days }}
+          app-url: ${{ inputs.app-url || vars.APP_URL }}
+          dry-run: ${{ inputs.dry-run && 'true' || 'false' }}
+        env:
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+          BUNNY_STORAGE_HOST: ${{ vars.BUNNY_STORAGE_HOST }}
+          BUNNY_CDN_API_KEY: ${{ secrets.BUNNY_CDN_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}

@@ -1,0 +1,41 @@
+name: Prune preview builds
+description: Purge and delete Bunny Storage preview folders whose PR closed more than N days ago.
+inputs:
+  prefix-pattern:
+    description: Top-level preview folder name with {n} for the PR number (e.g. pr-{n})
+    required: true
+  closed-days:
+    description: Keep a preview until its PR has been closed (merged or not) this many days
+    required: false
+    default: '30'
+  app-url:
+    description: Origin the preview folders are served under (e.g. https://preview.example.com)
+    required: true
+  dry-run:
+    description: List what would be pruned without purging or deleting
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Prune preview builds
+      shell: bash
+      env:
+        BUNNY_STORAGE_ZONE: ${{ env.BUNNY_STORAGE_ZONE }}
+        BUNNY_STORAGE_PASSWORD: ${{ env.BUNNY_STORAGE_PASSWORD }}
+        BUNNY_STORAGE_HOST: ${{ env.BUNNY_STORAGE_HOST }}
+        BUNNY_CDN_API_KEY: ${{ env.BUNNY_CDN_API_KEY }}
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        PREFIX_PATTERN: ${{ inputs.prefix-pattern }}
+        CLOSED_DAYS: ${{ inputs.closed-days }}
+        APP_URL: ${{ inputs.app-url }}
+      run: |
+        EXTRA=()
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          EXTRA+=(--dry-run)
+        fi
+        node "${{ github.action_path }}/prune.mjs" \
+          --prefix-pattern "$PREFIX_PATTERN" \
+          --closed-days "$CLOSED_DAYS" \
+          --app-url "$APP_URL" \
+          "${EXTRA[@]}"
