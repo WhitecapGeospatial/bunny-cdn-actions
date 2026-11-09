@@ -20,7 +20,7 @@ Plain Node `.mjs` scripts. No `package.json`, no TypeScript in this repo.
 
 ## Org access
 
-This private repo is set to **Accessible from repositories in the organization** so same-org callers can `uses:` it. Pin callers at `@v1`.
+This repo is public so callers in any org can `uses:` it. It lives in `WhitecapGeospatial` (moved from `UCSCGeospatialVisualizationLab`, which GitHub still redirects). Pin callers at `@v1`.
 
 ## Required secrets / vars (on the caller)
 
@@ -63,7 +63,7 @@ on:
   workflow_dispatch:
 jobs:
   sync:
-    uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/.github/workflows/sync-geodata.yml@v1
+    uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/sync-geodata.yml@v1
     with:
       cdn-host: ${{ vars.APP_URL }}
     secrets: inherit
@@ -96,7 +96,7 @@ After checkout of the caller:
 ## Deploy / upload / purge caller
 
 ```yaml
-- uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/upload-storage@v1
+- uses: WhitecapGeospatial/bunny-cdn-actions/upload-storage@v1
   with:
     build-dir: dist          # CRA: build
     hashed-dir: assets       # CRA: static
@@ -117,7 +117,7 @@ After checkout of the caller:
       for (const p of cacheEntrypoints) console.log(p)
     " > "$RUNNER_TEMP/purge-paths.txt"
 
-- uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/purge-cdn@v1
+- uses: WhitecapGeospatial/bunny-cdn-actions/purge-cdn@v1
   if: env.DEPLOY_ENV == 'production'
   with:
     app-url: ${{ vars.APP_URL }}

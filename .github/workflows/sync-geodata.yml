@@ -96,7 +96,7 @@ jobs:
       # Relative ./sync-geodata resolves in the *caller* checkout; pin the
       # composite to the same major tag as this reusable workflow.
       - name: Sync geodata
-        uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/sync-geodata@v1
+        uses: WhitecapGeospatial/bunny-cdn-actions/sync-geodata@v1
         with:
           catalog-file: ${{ steps.catalog.outputs.catalog-file }}
           check-source-only: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
