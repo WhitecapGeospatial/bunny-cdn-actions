@@ -39,7 +39,7 @@ jobs:
       # Relative ./prune-previews resolves in the *caller* checkout; pin the
       # composite to the same major tag as this reusable workflow.
       - name: Prune preview builds
-        uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/prune-previews@v1
+        uses: WhitecapGeospatial/bunny-cdn-actions/prune-previews@v1
         with:
           prefix-pattern: ${{ inputs.prefix-pattern }}
           closed-days: ${{ inputs.closed-days }}

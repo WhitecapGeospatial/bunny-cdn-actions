@@ -155,7 +155,7 @@ jobs:
   prune:
     permissions:
       pull-requests: read
-    uses: UCSCGeospatialVisualizationLab/bunny-cdn-actions/.github/workflows/prune-previews.yml@v1
+    uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/prune-previews.yml@v1
     with:
       prefix-pattern: pr-{n}   # must match the upload-storage remote-prefix naming
       closed-days: 30
