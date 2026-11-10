@@ -1,6 +1,7 @@
 name: Sync geodata to Bunny Storage
 
-# Caller owns checkout path filters and secrets: inherit.
+# Caller owns checkout path filters and passes the secrets below by name.
+# secrets: inherit only works when the caller is in the same org as this repo.
 # This workflow extracts CDN_ASSET_S3_OBJECTS from the caller's catalog module
 # (unless catalog-file is set), then runs the sync-geodata composite.
 on:
@@ -36,6 +37,15 @@ on:
         type: boolean
         required: false
         default: false
+    secrets:
+      NAUTILUS_GEODATA_ACCESS_KEY_ID:
+        required: true
+      NAUTILUS_GEODATA_SECRET_ACCESS_KEY:
+        required: true
+      BUNNY_STORAGE_ZONE:
+        required: true
+      BUNNY_STORAGE_PASSWORD:
+        required: true
 
 jobs:
   sync:
