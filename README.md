@@ -160,8 +160,13 @@ jobs:
       prefix-pattern: pr-{n}   # must match the upload-storage remote-prefix naming
       closed-days: 30
       dry-run: ${{ inputs.dry-run || false }}
-    secrets: inherit
+    secrets:
+      BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+      BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+      BUNNY_CDN_API_KEY: ${{ secrets.BUNNY_CDN_API_KEY }}
 ```
+
+As with sync, pass secrets by name rather than `secrets: inherit`, which doesn't reach callers in other orgs. `BUNNY_CDN_API_KEY` is often a `preview` environment secret; this mapping only sees repo-level secrets, but the job's `preview` environment values take precedence when set.
 
 | Input | Default | Notes |
 |-------|---------|-------|

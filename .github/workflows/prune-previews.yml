@@ -1,6 +1,7 @@
 name: Prune preview builds
 
-# Caller owns the schedule and secrets: inherit.
+# Caller owns the schedule and passes the secrets below by name.
+# secrets: inherit only works when the caller is in the same org as this repo.
 # Runs in the `preview` environment, where the preview storage zone and APP_URL live.
 on:
   workflow_call:
@@ -25,6 +26,15 @@ on:
         type: boolean
         required: false
         default: false
+    # Optional: the caller's preview environment secrets, if set, take precedence
+    # over the values passed here. prune.mjs fails clearly if one is missing.
+    secrets:
+      BUNNY_STORAGE_ZONE:
+        required: false
+      BUNNY_STORAGE_PASSWORD:
+        required: false
+      BUNNY_CDN_API_KEY:
+        required: false
 
 jobs:
   prune:
