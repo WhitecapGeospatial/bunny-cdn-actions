@@ -65,8 +65,14 @@ on:
 jobs:
   sync:
     uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/sync-geodata.yml@v1
-    secrets: inherit
+    secrets:
+      NAUTILUS_GEODATA_ACCESS_KEY_ID: ${{ secrets.NAUTILUS_GEODATA_ACCESS_KEY_ID }}
+      NAUTILUS_GEODATA_SECRET_ACCESS_KEY: ${{ secrets.NAUTILUS_GEODATA_SECRET_ACCESS_KEY }}
+      BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+      BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
 ```
+
+Pass the secrets by name. `secrets: inherit` only reaches a reusable workflow in the caller's own org, and callers outside `WhitecapGeospatial` would get empty values. Pass repo-level secrets: the caller job has no environment, so `preview`/`production` environment secrets aren't visible to this mapping.
 
 Inputs (all optional except what you need):
 
