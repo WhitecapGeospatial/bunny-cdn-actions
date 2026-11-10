@@ -2,8 +2,8 @@ name: Sync geodata to Bunny Storage
 
 # Caller owns checkout path filters and passes the secrets below by name.
 # secrets: inherit only works when the caller is in the same org as this repo.
-# This workflow extracts CDN_ASSET_S3_OBJECTS from the caller's catalog module
-# (unless catalog-file is set), then runs the sync-geodata composite.
+# The sync-geodata composite extracts CDN_ASSET_S3_OBJECTS from the caller's
+# catalog module (unless catalog-file is set) via lib/extract-export.mjs.
 on:
   workflow_call:
     inputs:
@@ -23,7 +23,7 @@ on:
         required: false
         default: ''
       cdn-host:
-        description: Smoke host for verify (typically vars.APP_URL)
+        description: Smoke host for verify (default vars.APP_URL from the job's environment)
         type: string
         required: false
         default: ''
@@ -63,55 +63,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Extract catalog from module
-        if: inputs.catalog-file == ''
-        id: extract
-        env:
-          CATALOG_MODULE: ${{ inputs.catalog-module }}
-          CATALOG_EXPORT: ${{ inputs.catalog-export }}
-        run: |
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/cdnAssets.mjs"
-          CATALOG="$RUNNER_TEMP/geodata-catalog.txt"
-          npx --yes esbuild "$CATALOG_MODULE" \
-            --bundle --platform=node --format=esm --packages=external \
-            --outfile="$OUT"
-          node --input-type=module -e "
-            import { ${CATALOG_EXPORT} as paths } from 'file://${OUT}'
-            if (!Array.isArray(paths)) {
-              throw new Error('${CATALOG_EXPORT} must be an array of S3 object paths')
-            }
-            for (const p of paths) {
-              if (typeof p !== 'string' || !p.trim()) {
-                throw new Error('catalog entry must be a non-empty string')
-              }
-              if (/^https?:\/\//i.test(p)) {
-                throw new Error('catalog must be bucket/key paths, not URLs: ' + p)
-              }
-              console.log(p)
-            }
-          " > "$CATALOG"
-          echo "catalog-file=$CATALOG" >> "$GITHUB_OUTPUT"
-          echo "Extracted $(wc -l < "$CATALOG") catalog paths from ${CATALOG_MODULE}"
-
-      - name: Resolve catalog file
-        id: catalog
-        run: |
-          if [[ -n "${{ inputs.catalog-file }}" ]]; then
-            echo "catalog-file=${{ inputs.catalog-file }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "catalog-file=${{ steps.extract.outputs.catalog-file }}" >> "$GITHUB_OUTPUT"
-          fi
-
       # Relative ./sync-geodata resolves in the *caller* checkout; pin the
       # composite to the same major tag as this reusable workflow.
       - name: Sync geodata
         uses: WhitecapGeospatial/bunny-cdn-actions/sync-geodata@v1
         with:
-          catalog-file: ${{ steps.catalog.outputs.catalog-file }}
+          catalog-module: ${{ inputs.catalog-module }}
+          catalog-export: ${{ inputs.catalog-export }}
+          catalog-file: ${{ inputs.catalog-file }}
           check-source-only: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
           verify: ${{ github.event_name != 'pull_request' && inputs.verify && 'true' || 'false' }}
-          cdn-host: ${{ inputs.cdn-host }}
+          # Resolved here, not in the caller: environment-scoped APP_URL is only
+          # visible inside this job, which is the one bound to the environment.
+          cdn-host: ${{ inputs.cdn-host || vars.APP_URL }}
           dry-run: ${{ inputs.dry-run && 'true' || 'false' }}
         env:
           NAUTILUS_ACCESS_KEY_ID: ${{ secrets.NAUTILUS_GEODATA_ACCESS_KEY_ID }}

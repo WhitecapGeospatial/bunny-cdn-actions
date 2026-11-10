@@ -4,9 +4,22 @@ inputs:
   app-url:
     description: Site origin URL (e.g. https://app.example.com)
     required: true
+  catalog-module:
+    description: Leaf module in the caller checkout that exports the purge paths
+    required: false
+    default: src/cdnAssets.ts
+  catalog-export:
+    description: Named export listing stable shell paths
+    required: false
+    default: cacheEntrypoints
   paths-file:
-    description: File with one purge path per line
-    required: true
+    description: Skip extract; use this file (one purge path per line) instead
+    required: false
+    default: ''
+  hashed-dir:
+    description: Content-hashed build subdirectory (same as upload-storage); paths covering it are rejected
+    required: false
+    default: assets
   dry-run:
     description: Log purge URLs without calling the API
     required: false
@@ -14,16 +27,38 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Extract purge paths from module
+      if: inputs.paths-file == ''
+      id: extract
+      shell: bash
+      env:
+        CATALOG_MODULE: ${{ inputs.catalog-module }}
+        CATALOG_EXPORT: ${{ inputs.catalog-export }}
+      run: |
+        set -euo pipefail
+        PATHS_FILE="$RUNNER_TEMP/purge-paths.txt"
+        node "${{ github.action_path }}/../lib/extract-export.mjs" \
+          --module "$CATALOG_MODULE" \
+          --export "$CATALOG_EXPORT" \
+          --out "$PATHS_FILE"
+        echo "paths-file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
+
     - name: Purge CDN cache
       shell: bash
       env:
         BUNNY_CDN_API_KEY: ${{ env.BUNNY_CDN_API_KEY }}
+        APP_URL: ${{ inputs.app-url }}
+        PATHS_FILE: ${{ inputs.paths-file || steps.extract.outputs.paths-file }}
+        HASHED_DIR: ${{ inputs.hashed-dir }}
       run: |
         EXTRA=()
+        if [[ -n "$HASHED_DIR" ]]; then
+          EXTRA+=(--hashed-dir "$HASHED_DIR")
+        fi
         if [[ "${{ inputs.dry-run }}" == "true" ]]; then
           EXTRA+=(--dry-run)
         fi
         node "${{ github.action_path }}/purge.mjs" \
-          --app-url "${{ inputs.app-url }}" \
-          --paths-file "${{ inputs.paths-file }}" \
+          --app-url "$APP_URL" \
+          --paths-file "$PATHS_FILE" \
           "${EXTRA[@]}"
