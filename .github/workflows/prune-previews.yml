@@ -58,10 +58,11 @@ jobs:
           fi
           echo "app-url=${APP_URL}" >> "$GITHUB_OUTPUT"
 
-      # Relative ./prune-previews resolves in the *caller* checkout; pin the
-      # composite to the same major tag as this reusable workflow.
+      # Relative ./prune-previews resolves in the *caller* checkout, so reference
+      # the composite by commit SHA. A tag here would float even when callers
+      # SHA-pin this workflow. Bump it in a follow-up commit when the composite changes.
       - name: Prune preview builds
-        uses: WhitecapGeospatial/bunny-cdn-actions/prune-previews@v1
+        uses: WhitecapGeospatial/bunny-cdn-actions/prune-previews@3a2b0905317238b157204e556b4af80213593d47
         with:
           prefix-pattern: ${{ inputs.prefix-pattern }}
           closed-days: ${{ inputs.closed-days }}

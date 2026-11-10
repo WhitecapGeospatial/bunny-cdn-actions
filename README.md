@@ -186,6 +186,8 @@ Behavior (runs in the `preview` environment):
 4. Per-folder failures are logged and the job fails at the end; other folders still run.
 5. A run that matches no folders, or where no matching folder has a PR in this repo, still passes but logs a warning: both usually mean a wrong `prefix-pattern` or a token without `pull-requests: read`.
 
+The reusable workflow references `prune-previews@<sha>`, not `@v1`. When `prune-previews/` changes, land that change first, then point the SHA at that commit in a follow-up commit before tagging.
+
 Schedule caveats: `schedule` only runs from the default branch, can start late, and is auto-disabled after 60 days without repo activity in public repos (re-enable from the Actions tab). Use `workflow_dispatch` (dry-run by default) to test.
 
 ## Verify rules
