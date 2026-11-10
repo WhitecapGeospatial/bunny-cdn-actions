@@ -1,0 +1,76 @@
+name: Prune preview builds
+
+# Caller owns the schedule and passes the secrets below by name.
+# secrets: inherit only works when the caller is in the same org as this repo.
+# Runs in the `preview` environment, where the preview storage zone and BUNNY_PULLZONE_HOST live.
+on:
+  workflow_call:
+    inputs:
+      prefix-pattern:
+        description: Top-level preview folder name with {n} for the PR number (e.g. my-app-pr-{n})
+        type: string
+        required: true
+      closed-days:
+        description: Days after the PR closes (merged or not) before its preview is deleted
+        type: number
+        required: false
+        default: 30
+      app-url:
+        description: Origin previews are served under; defaults to https://<preview environment's BUNNY_PULLZONE_HOST>
+        type: string
+        required: false
+        default: ''
+      dry-run:
+        description: List what would be pruned without purging or deleting
+        type: boolean
+        required: false
+        default: false
+    # Optional: the caller's preview environment secrets, if set, take precedence
+    # over the values passed here. prune.mjs fails clearly if one is missing.
+    secrets:
+      BUNNY_STORAGE_ZONE:
+        required: false
+      BUNNY_STORAGE_PASSWORD:
+        required: false
+      BUNNY_CDN_API_KEY:
+        required: false
+
+jobs:
+  prune:
+    name: Prune preview builds
+    runs-on: ubuntu-latest
+    environment: preview
+    permissions:
+      pull-requests: read
+    concurrency:
+      group: prune-previews-${{ github.repository }}
+    steps:
+      - name: Resolve preview origin
+        id: origin
+        env:
+          APP_URL_INPUT: ${{ inputs.app-url }}
+          BUNNY_PULLZONE_HOST: ${{ vars.BUNNY_PULLZONE_HOST }}
+        run: |
+          APP_URL="${APP_URL_INPUT:-${BUNNY_PULLZONE_HOST:+https://${BUNNY_PULLZONE_HOST}}}"
+          if [[ -z "$APP_URL" ]]; then
+            echo "::error::Set the app-url input or the preview environment's BUNNY_PULLZONE_HOST var."
+            exit 1
+          fi
+          echo "app-url=${APP_URL}" >> "$GITHUB_OUTPUT"
+
+      # Relative ./prune-previews resolves in the *caller* checkout, so reference
+      # the composite by commit SHA. A tag here would float even when callers
+      # SHA-pin this workflow. Bump it in a follow-up commit when the composite changes.
+      - name: Prune preview builds
+        uses: WhitecapGeospatial/bunny-cdn-actions/prune-previews@3a2b0905317238b157204e556b4af80213593d47
+        with:
+          prefix-pattern: ${{ inputs.prefix-pattern }}
+          closed-days: ${{ inputs.closed-days }}
+          app-url: ${{ steps.origin.outputs.app-url }}
+          dry-run: ${{ inputs.dry-run && 'true' || 'false' }}
+        env:
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+          BUNNY_STORAGE_HOST: ${{ vars.BUNNY_STORAGE_HOST }}
+          BUNNY_CDN_API_KEY: ${{ secrets.BUNNY_CDN_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}

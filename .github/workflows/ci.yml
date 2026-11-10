@@ -25,3 +25,4 @@ jobs:
           node sync-geodata/verify.mjs --self-check
           node upload-storage/upload.mjs --self-check
           node purge-cdn/purge.mjs --self-check
+          node prune-previews/prune.mjs --self-check

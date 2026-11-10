@@ -1,6 +1,6 @@
 # bunny-cdn-actions
 
-Shared GitHub Actions for Bunny Storage upload, CDN purge, and Nautilus → Bunny geodata sync.
+Shared GitHub Actions for Bunny Storage upload, CDN purge, preview pruning, and Nautilus → Bunny geodata sync.
 
 Mechanism only — each app keeps its own `src/cdnAssets.ts` inventory and thin caller workflows.
 
@@ -11,10 +11,12 @@ bunny-cdn-actions/
   .github/workflows/
     ci.yml              # --self-check on every script (no live Nautilus/Bunny)
     sync-geodata.yml    # reusable workflow (workflow_call)
+    prune-previews.yml  # reusable workflow (workflow_call)
   lib/extract-export.mjs  # shared: esbuild an app's catalog module, dump one export
   sync-geodata/         # composite: extract + rclone install + copy/check + optional verify
   upload-storage/       # composite: PUT build dir (hashed first)
   purge-cdn/            # composite: extract + purge stable shell paths
+  prune-previews/       # composite: purge + delete preview folders of long-closed PRs
 ```
 
 Plain Node `.mjs` scripts. No `package.json`, no TypeScript in this repo.
@@ -29,14 +31,15 @@ This repo is public so callers in any org can `uses:` it. It lives in `WhitecapG
 |------|------|---------|
 | `NAUTILUS_GEODATA_ACCESS_KEY_ID` | secret | sync |
 | `NAUTILUS_GEODATA_SECRET_ACCESS_KEY` | secret | sync |
-| `BUNNY_STORAGE_ZONE` | secret | sync, upload |
-| `BUNNY_STORAGE_PASSWORD` | secret | sync, upload |
-| `BUNNY_CDN_API_KEY` | secret | purge |
-| `BUNNY_STORAGE_HOST` | var | sync, upload (e.g. `ny.storage.bunnycdn.com`) |
+| `BUNNY_STORAGE_ZONE` | secret | sync, upload, prune |
+| `BUNNY_STORAGE_PASSWORD` | secret | sync, upload, prune |
+| `BUNNY_CDN_API_KEY` | secret | purge, prune |
+| `BUNNY_STORAGE_HOST` | var | sync, upload, prune (e.g. `ny.storage.bunnycdn.com`) |
 | `APP_URL` | var | sync verify + purge (e.g. `https://app.example.com`) |
+| `BUNNY_PULLZONE_HOST` | var | prune: preview origin, `preview` environment (e.g. `my-zone.b-cdn.net`) |
 | `NAUTILUS_S3_HOST` | var | optional; default `s3-west.nrp-nautilus.io` |
 
-Environments: reusable sync uses `preview` on pull_request, `production` otherwise. Callers should define the same env secrets/vars nbs uses.
+Environments: reusable sync uses `preview` on pull_request, `production` otherwise; reusable prune always uses `preview`. Callers should define the same env secrets/vars nbs uses.
 
 ## `cdnAssets` contract (in each app)
 
@@ -136,6 +139,57 @@ The list stays app-owned; only the code that reads it lives here.
 
 The `cacheEntrypoints` list stays in the app; the action only reads it. Dual-write to Nautilus stays in the app deploy workflow.
 
+## Prune previews caller
+
+Previews are served from the preview pull zone (`https://${BUNNY_PULLZONE_HOST}/<DEPLOY_PATH>/`), not `APP_URL`, so prune purges that host. Production is never touched.
+
+Previews are shared with clients, so a preview is kept until its PR has been **closed (merged or not) for `closed-days`**. Open, reopened, and unknown PRs are always kept. The schedule stays in the caller.
+
+```yaml
+# .github/workflows/prune-previews.yml
+name: Prune preview builds
+on:
+  schedule:
+    - cron: '17 9 * * *'   # daily; off the hour to dodge GitHub's top-of-hour backlog
+  workflow_dispatch:
+    inputs:
+      dry-run: { type: boolean, default: true }
+jobs:
+  prune:
+    permissions:
+      pull-requests: read
+    uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/prune-previews.yml@v1
+    with:
+      prefix-pattern: my-app-pr-{n}   # = deploy.yml's DEPLOY_PATH for PRs: ${PROJECT_NAME}-pr-${PR_NUMBER}
+      closed-days: 30
+      dry-run: ${{ inputs.dry-run || false }}
+    secrets:
+      BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+      BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+      BUNNY_CDN_API_KEY: ${{ secrets.BUNNY_CDN_API_KEY }}
+```
+
+As with sync, pass secrets by name rather than `secrets: inherit`, which doesn't reach callers in other orgs. `BUNNY_CDN_API_KEY` is often a `preview` environment secret; this mapping only sees repo-level secrets, but the job's `preview` environment values take precedence when set.
+
+| Input | Default | Notes |
+|-------|---------|-------|
+| `prefix-pattern` | _(required)_ | One top-level folder name; `{n}` = PR number. Needs literal text around `{n}`; no `/` or `*`. Include the project name so apps sharing a zone can't prune each other's previews |
+| `closed-days` | `30` | Whole days since `closed_at` |
+| `app-url` | `https://${vars.BUNNY_PULLZONE_HOST}` | Origin previews are served under (resolved in the `preview` environment); the job fails if neither is set |
+| `dry-run` | `false` | Lists `keep` / `would prune` per folder; still needs storage + GitHub access to list |
+
+Behavior (runs in the `preview` environment):
+
+1. List the storage zone root; only directories whose **whole name** matches `prefix-pattern` are considered. Production files at the root are never touched.
+2. Look up each PR with `GITHUB_TOKEN` (`pull-requests: read`).
+3. Prune when closed for more than `closed-days`: purge `${app-url}/<folder>/*`, then `DELETE <folder>/` (recursive). Purge goes first so a failed delete is retried in full next run.
+4. Per-folder failures are logged and the job fails at the end; other folders still run.
+5. A run that matches no folders, or where no matching folder has a PR in this repo, still passes but logs a warning: both usually mean a wrong `prefix-pattern` or a token without `pull-requests: read`.
+
+The reusable workflow references `prune-previews@<sha>`, not `@v1`. When `prune-previews/` changes, land that change first, then point the SHA at that commit in a follow-up commit before tagging.
+
+Schedule caveats: `schedule` only runs from the default branch, can start late, and is auto-disabled after 60 days without repo activity in public repos (re-enable from the Actions tab). Use `workflow_dispatch` (dry-run by default) to test.
+
 ## Verify rules
 
 URLs are `${cdn-host}/${s3-path}`. Extension-based checks:
@@ -155,4 +209,5 @@ node sync-geodata/copy.mjs --self-check
 node sync-geodata/verify.mjs --self-check
 node upload-storage/upload.mjs --self-check
 node purge-cdn/purge.mjs --self-check
+node prune-previews/prune.mjs --self-check
 ```
