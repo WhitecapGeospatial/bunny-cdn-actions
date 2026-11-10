@@ -35,7 +35,8 @@ This repo is public so callers in any org can `uses:` it. It lives in `WhitecapG
 | `BUNNY_STORAGE_PASSWORD` | secret | sync, upload, prune |
 | `BUNNY_CDN_API_KEY` | secret | purge, prune |
 | `BUNNY_STORAGE_HOST` | var | sync, upload, prune (e.g. `ny.storage.bunnycdn.com`) |
-| `APP_URL` | var | sync verify + purge + prune (e.g. `https://app.example.com`) |
+| `APP_URL` | var | sync verify + purge (e.g. `https://app.example.com`) |
+| `BUNNY_PULLZONE_HOST` | var | prune: preview origin, `preview` environment (e.g. `my-zone.b-cdn.net`) |
 | `NAUTILUS_S3_HOST` | var | optional; default `s3-west.nrp-nautilus.io` |
 
 Environments: reusable sync uses `preview` on pull_request, `production` otherwise; reusable prune always uses `preview`. Callers should define the same env secrets/vars nbs uses.
@@ -140,6 +141,8 @@ The `cacheEntrypoints` list stays in the app; the action only reads it. Dual-wri
 
 ## Prune previews caller
 
+Previews are served from the preview pull zone (`https://${BUNNY_PULLZONE_HOST}/<DEPLOY_PATH>/`), not `APP_URL`, so prune purges that host. Production is never touched.
+
 Previews are shared with clients, so a preview is kept until its PR has been **closed (merged or not) for `closed-days`**. Open, reopened, and unknown PRs are always kept. The schedule stays in the caller.
 
 ```yaml
@@ -157,7 +160,7 @@ jobs:
       pull-requests: read
     uses: WhitecapGeospatial/bunny-cdn-actions/.github/workflows/prune-previews.yml@v1
     with:
-      prefix-pattern: pr-{n}   # must match the upload-storage remote-prefix naming
+      prefix-pattern: my-app-pr-{n}   # = deploy.yml's DEPLOY_PATH for PRs: ${PROJECT_NAME}-pr-${PR_NUMBER}
       closed-days: 30
       dry-run: ${{ inputs.dry-run || false }}
     secrets:
@@ -170,9 +173,9 @@ As with sync, pass secrets by name rather than `secrets: inherit`, which doesn't
 
 | Input | Default | Notes |
 |-------|---------|-------|
-| `prefix-pattern` | `pr-{n}` | One top-level folder name; `{n}` = PR number. Needs literal text around `{n}`; no `/` or `*` |
+| `prefix-pattern` | _(required)_ | One top-level folder name; `{n}` = PR number. Needs literal text around `{n}`; no `/` or `*`. Include the project name so apps sharing a zone can't prune each other's previews |
 | `closed-days` | `30` | Whole days since `closed_at` |
-| `app-url` | `vars.APP_URL` | Origin previews are served under (resolved in the `preview` environment) |
+| `app-url` | `https://${vars.BUNNY_PULLZONE_HOST}` | Origin previews are served under (resolved in the `preview` environment); the job fails if neither is set |
 | `dry-run` | `false` | Lists `keep` / `would prune` per folder; still needs storage + GitHub access to list |
 
 Behavior (runs in the `preview` environment):
@@ -181,6 +184,7 @@ Behavior (runs in the `preview` environment):
 2. Look up each PR with `GITHUB_TOKEN` (`pull-requests: read`).
 3. Prune when closed for more than `closed-days`: purge `${app-url}/<folder>/*`, then `DELETE <folder>/` (recursive). Purge goes first so a failed delete is retried in full next run.
 4. Per-folder failures are logged and the job fails at the end; other folders still run.
+5. A run that matches no folders, or where no matching folder has a PR in this repo, still passes but logs a warning: both usually mean a wrong `prefix-pattern` or a token without `pull-requests: read`.
 
 Schedule caveats: `schedule` only runs from the default branch, can start late, and is auto-disabled after 60 days without repo activity in public repos (re-enable from the Actions tab). Use `workflow_dispatch` (dry-run by default) to test.
 

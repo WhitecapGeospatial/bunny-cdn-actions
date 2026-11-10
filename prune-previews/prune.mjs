@@ -83,6 +83,9 @@ function selfCheck() {
   for (const name of ['pr-', 'pr-12x', 'xpr-12', 'pr-1/assets', 'assets', 'index.html', '12']) {
     assert.equal(re.test(name), false, name)
   }
+  const app = compilePattern('nbs-adapts-pr-{n}')
+  assert.equal('nbs-adapts-pr-12'.match(app)?.[1], '12')
+  for (const name of ['nbs-adapts', 'nbs-adapts-main', 'other-app-pr-12']) assert.equal(app.test(name), false, name)
   assert.equal(compilePattern('preview.{n}.build').test('preview.7.build'), true)
   assert.equal(compilePattern('preview.{n}.build').test('previewX7Xbuild'), false)
   assert.throws(() => compilePattern('{n}'), /literal/)
@@ -159,9 +162,13 @@ async function main() {
     .map((o) => ({ name: o.ObjectName, match: o.ObjectName.match(pattern) }))
     .filter((f) => f.match)
   console.log(`${folders.length} folders match ${args.prefixPattern} (of ${listing.length} root entries)`)
+  if (!folders.length) {
+    console.log(`::warning::No storage folders match ${args.prefixPattern}; check it matches the deploy's preview path`)
+  }
 
   const now = Date.now()
   let pruned = 0
+  let notFound = 0
   const failures = []
   for (const { name, match } of folders) {
     try {
@@ -169,6 +176,7 @@ async function main() {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
       })
       const pr = res.status === 404 ? null : await (await check(res, `GET PR #${match[1]}`)).json()
+      if (!pr) notFound++
       const { prune, reason } = decide(pr, closedDays, now)
       if (!prune) {
         console.log(`keep   ${name}: ${reason}`)
@@ -198,6 +206,12 @@ async function main() {
       console.error(`FAIL   ${name}: ${err.message}`)
       failures.push(name)
     }
+  }
+
+  if (folders.length && notFound === folders.length) {
+    console.log(
+      `::warning::None of the ${notFound} matching folders has a PR in ${repo}; check the token has pull-requests: read and the pattern belongs to this repo`
+    )
   }
 
   const verb = args.dryRun ? 'would prune' : 'pruned'
